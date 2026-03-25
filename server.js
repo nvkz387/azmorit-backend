@@ -1,3 +1,4 @@
+// server.js — AZMORIT Backend (исправленная версия)
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -14,7 +15,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Регистрация реферала
+// ====================== РЕГИСТРАЦИЯ РЕФЕРАЛА ======================
 app.post('/api/register', async (req, res) => {
   const { wallet, refCode } = req.body;
   if (!wallet) return res.status(400).json({ error: 'wallet required' });
@@ -23,28 +24,45 @@ app.post('/api/register', async (req, res) => {
   const genRefCode = normalized.slice(0, 8).toUpperCase();
 
   try {
-    await supabase.from('referrals').upsert({ 
-      wallet: normalized, 
-      ref_code: genRefCode 
-    }, { onConflict: 'wallet' });
+    // Создаём или обновляем пользователя
+    let { data: user, error } = await supabase
+      .from('referrals')
+      .upsert({ 
+        wallet: normalized, 
+        ref_code: genRefCode 
+      }, { onConflict: 'wallet' })
+      .select()
+      .single();
 
-    if (refCode && refCode.length === 8) {
+    if (error) throw error;
+
+    // Если пришёл реферальный код и это не сам на себя
+    if (refCode && refCode.length === 8 && refCode.toUpperCase() !== genRefCode) {
+      const upperRef = refCode.toUpperCase();
+
       const { data: referrer } = await supabase
         .from('referrals')
         .select('wallet')
-        .eq('ref_code', refCode.toUpperCase())
+        .eq('ref_code', upperRef)
         .single();
 
       if (referrer && referrer.wallet !== normalized) {
+        console.log(`Привязываем реферера ${referrer.wallet} → ${normalized}`);
+
+        // Привязываем реферера
         await supabase
           .from('referrals')
           .update({ referrer_wallet: referrer.wallet })
           .eq('wallet', normalized);
 
+        // Добавляем в список прямых рефералов реферера
         await supabase
           .from('referrals')
           .update({ 
-            direct_referrals: supabase.rpc('array_append', { arr: 'direct_referrals', elem: normalized }) 
+            direct_referrals: supabase.rpc('array_append', { 
+              arr: 'direct_referrals', 
+              elem: normalized 
+            }) 
           })
           .eq('wallet', referrer.wallet);
       }
@@ -57,18 +75,21 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// Получение статистики рефералов
+// ====================== ПОЛУЧЕНИЕ СТАТИСТИКИ ======================
 app.get('/api/stats/:wallet', async (req, res) => {
   const wallet = req.params.wallet.toLowerCase().trim();
 
-  const { data: user } = await supabase
+  const { data: user, error } = await supabase
     .from('referrals')
     .select('*')
     .eq('wallet', wallet)
     .single();
 
-  if (!user) return res.status(404).json({ error: 'Not found' });
+  if (error || !user) {
+    return res.status(404).json({ error: 'Not found' });
+  }
 
+  // Подсчёт рефералов 2 уровня
   const { data: level2 } = await supabase
     .from('referrals')
     .select('wallet')
@@ -86,13 +107,4 @@ app.get('/api/stats/:wallet', async (req, res) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`AZMORIT Backend запущен на порту ${PORT}`);
-});
-
-// Тестовый маршрут для проверки
-app.get('/', (req, res) => {
-  res.json({ 
-    status: "OK", 
-    message: "AZMORIT Backend работает успешно!",
-    version: "1.0"
-  });
 });
