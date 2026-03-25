@@ -87,3 +87,12 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`AZMORIT Backend запущен на порту ${PORT}`);
 });
+
+// Тестовый маршрут для проверки
+app.get('/', (req, res) => {
+  res.json({ 
+    status: "OK", 
+    message: "AZMORIT Backend работает успешно!",
+    version: "1.0"
+  });
+});
