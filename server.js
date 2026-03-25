@@ -1,4 +1,3 @@
-// server.js — AZMORIT Backend (финальная исправленная версия)
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -15,45 +14,40 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ====================== РЕГИСТРАЦИЯ РЕФЕРАЛА ======================
+// ====================== РЕГИСТРАЦИЯ РЕФЕРАЛА (ФИНАЛЬНАЯ ВЕРСИЯ) ======================
 app.post('/api/register', async (req, res) => {
   const { wallet, refCode } = req.body;
   if (!wallet) return res.status(400).json({ error: 'wallet required' });
 
-  const normalized = wallet.toLowerCase().trim();
-  const genRefCode = normalized.slice(0, 8).toUpperCase();
+  const normalizedWallet = wallet.toLowerCase().trim();
+  const generatedRefCode = normalizedWallet.slice(0, 8).toUpperCase();
 
   try {
-    // Создаём или обновляем пользователя
-    let { data: user, error } = await supabase
+    // Создаём пользователя
+    await supabase
       .from('referrals')
-      .upsert({ 
-        wallet: normalized, 
-        ref_code: genRefCode 
-      }, { onConflict: 'wallet' })
-      .select()
-      .single();
+      .upsert({
+        wallet: normalizedWallet,
+        ref_code: generatedRefCode
+      }, { onConflict: 'wallet' });
 
-    if (error) throw error;
+    // Если есть реферальный код
+    if (refCode && refCode.length === 8) {
+      const referrerRefCode = refCode.toUpperCase();
 
-    // Если пришёл реферальный код
-    if (refCode && refCode.length === 8 && refCode.toUpperCase() !== genRefCode) {
-      const upperRef = refCode.toUpperCase();
-
+      // Находим реферера
       const { data: referrer } = await supabase
         .from('referrals')
         .select('wallet')
-        .eq('ref_code', upperRef)
+        .eq('ref_code', referrerRefCode)
         .single();
 
-      if (referrer && referrer.wallet !== normalized) {
-        console.log(`✅ Привязываем реферера: ${referrer.wallet} → ${normalized}`);
-
+      if (referrer && referrer.wallet !== normalizedWallet) {
         // Привязываем реферера к новому пользователю
         await supabase
           .from('referrals')
           .update({ referrer_wallet: referrer.wallet })
-          .eq('wallet', normalized);
+          .eq('wallet', normalizedWallet);
 
         // Добавляем нового пользователя в список direct_referrals реферера
         await supabase
@@ -61,35 +55,34 @@ app.post('/api/register', async (req, res) => {
           .update({
             direct_referrals: supabase.rpc('array_append', {
               arr: 'direct_referrals',
-              elem: normalized
+              elem: normalizedWallet
             })
           })
           .eq('wallet', referrer.wallet);
+
+        console.log(`✅ Успешно привязан реферал: ${normalizedWallet} к рефереру ${referrer.wallet}`);
       }
     }
 
-    res.json({ success: true, refCode: genRefCode });
+    res.json({ success: true, refCode: generatedRefCode });
   } catch (err) {
-    console.error('Ошибка в /api/register:', err);
+    console.error('Register error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// ====================== ПОЛУЧЕНИЕ СТАТИСТИКИ ======================
+// ====================== СТАТИСТИКА ======================
 app.get('/api/stats/:wallet', async (req, res) => {
   const wallet = req.params.wallet.toLowerCase().trim();
 
-  const { data: user, error } = await supabase
+  const { data: user } = await supabase
     .from('referrals')
     .select('*')
     .eq('wallet', wallet)
     .single();
 
-  if (error || !user) {
-    return res.status(404).json({ error: 'Not found' });
-  }
+  if (!user) return res.status(404).json({ error: 'Not found' });
 
-  // Подсчёт рефералов 2 уровня
   const { data: level2 } = await supabase
     .from('referrals')
     .select('wallet')
