@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -14,7 +15,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ====================== РЕГИСТРАЦИЯ РЕФЕРАЛА ======================
+// ====================== РЕГИСТРАЦИЯ РЕФЕРАЛА (ВАРИАНТ А) ======================
 app.post('/api/register', async (req, res) => {
   const { wallet, refCode } = req.body;
   if (!wallet) return res.status(400).json({ error: 'wallet required' });
@@ -31,23 +32,22 @@ app.post('/api/register', async (req, res) => {
 
     // Если есть реферальный код
     if (refCode && refCode.length === 8) {
-      const refCodeUpper = refCode.toUpperCase();
+      const upperRef = refCode.toUpperCase();
 
-      // Находим реферера
       const { data: referrer } = await supabase
         .from('referrals')
         .select('wallet')
-        .eq('ref_code', refCodeUpper)
+        .eq('ref_code', upperRef)
         .single();
 
       if (referrer && referrer.wallet !== normalized) {
-        // Привязываем реферера
+        console.log(`✅ Привязан реферал: ${normalized} к рефереру ${referrer.wallet}`);
+
         await supabase
           .from('referrals')
           .update({ referrer_wallet: referrer.wallet })
           .eq('wallet', normalized);
 
-        // Добавляем в список прямых рефералов
         await supabase
           .from('referrals')
           .update({
@@ -57,8 +57,6 @@ app.post('/api/register', async (req, res) => {
             })
           })
           .eq('wallet', referrer.wallet);
-
-        console.log(`✅ Успешно привязан реферал ${normalized} к ${referrer.wallet}`);
       }
     }
 
