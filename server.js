@@ -14,59 +14,57 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ====================== РЕГИСТРАЦИЯ РЕФЕРАЛА (ФИНАЛЬНАЯ ВЕРСИЯ) ======================
+// ====================== РЕГИСТРАЦИЯ РЕФЕРАЛА ======================
 app.post('/api/register', async (req, res) => {
   const { wallet, refCode } = req.body;
   if (!wallet) return res.status(400).json({ error: 'wallet required' });
 
-  const normalizedWallet = wallet.toLowerCase().trim();
-  const generatedRefCode = normalizedWallet.slice(0, 8).toUpperCase();
+  const normalized = wallet.toLowerCase().trim();
+  const myRefCode = normalized.slice(0, 8).toUpperCase();
 
   try {
     // Создаём пользователя
-    await supabase
-      .from('referrals')
-      .upsert({
-        wallet: normalizedWallet,
-        ref_code: generatedRefCode
-      }, { onConflict: 'wallet' });
+    await supabase.from('referrals').upsert({
+      wallet: normalized,
+      ref_code: myRefCode
+    }, { onConflict: 'wallet' });
 
     // Если есть реферальный код
     if (refCode && refCode.length === 8) {
-      const referrerRefCode = refCode.toUpperCase();
+      const refCodeUpper = refCode.toUpperCase();
 
       // Находим реферера
       const { data: referrer } = await supabase
         .from('referrals')
         .select('wallet')
-        .eq('ref_code', referrerRefCode)
+        .eq('ref_code', refCodeUpper)
         .single();
 
-      if (referrer && referrer.wallet !== normalizedWallet) {
-        // Привязываем реферера к новому пользователю
+      if (referrer && referrer.wallet !== normalized) {
+        // Привязываем реферера
         await supabase
           .from('referrals')
           .update({ referrer_wallet: referrer.wallet })
-          .eq('wallet', normalizedWallet);
+          .eq('wallet', normalized);
 
-        // Добавляем нового пользователя в список direct_referrals реферера
+        // Добавляем в список прямых рефералов
         await supabase
           .from('referrals')
           .update({
             direct_referrals: supabase.rpc('array_append', {
               arr: 'direct_referrals',
-              elem: normalizedWallet
+              elem: normalized
             })
           })
           .eq('wallet', referrer.wallet);
 
-        console.log(`✅ Успешно привязан реферал: ${normalizedWallet} к рефереру ${referrer.wallet}`);
+        console.log(`✅ Успешно привязан реферал ${normalized} к ${referrer.wallet}`);
       }
     }
 
-    res.json({ success: true, refCode: generatedRefCode });
+    res.json({ success: true, refCode: myRefCode });
   } catch (err) {
-    console.error('Register error:', err);
+    console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
