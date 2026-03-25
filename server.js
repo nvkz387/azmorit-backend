@@ -1,4 +1,4 @@
-// server.js — AZMORIT Backend (исправленная версия)
+// server.js — AZMORIT Backend (финальная исправленная версия)
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -36,7 +36,7 @@ app.post('/api/register', async (req, res) => {
 
     if (error) throw error;
 
-    // Если пришёл реферальный код и это не сам на себя
+    // Если пришёл реферальный код
     if (refCode && refCode.length === 8 && refCode.toUpperCase() !== genRefCode) {
       const upperRef = refCode.toUpperCase();
 
@@ -47,22 +47,22 @@ app.post('/api/register', async (req, res) => {
         .single();
 
       if (referrer && referrer.wallet !== normalized) {
-        console.log(`Привязываем реферера ${referrer.wallet} → ${normalized}`);
+        console.log(`✅ Привязываем реферера: ${referrer.wallet} → ${normalized}`);
 
-        // Привязываем реферера
+        // Привязываем реферера к новому пользователю
         await supabase
           .from('referrals')
           .update({ referrer_wallet: referrer.wallet })
           .eq('wallet', normalized);
 
-        // Добавляем в список прямых рефералов реферера
+        // Добавляем нового пользователя в список direct_referrals реферера
         await supabase
           .from('referrals')
-          .update({ 
-            direct_referrals: supabase.rpc('array_append', { 
-              arr: 'direct_referrals', 
-              elem: normalized 
-            }) 
+          .update({
+            direct_referrals: supabase.rpc('array_append', {
+              arr: 'direct_referrals',
+              elem: normalized
+            })
           })
           .eq('wallet', referrer.wallet);
       }
@@ -70,7 +70,7 @@ app.post('/api/register', async (req, res) => {
 
     res.json({ success: true, refCode: genRefCode });
   } catch (err) {
-    console.error(err);
+    console.error('Ошибка в /api/register:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
