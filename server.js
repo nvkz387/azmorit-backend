@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -15,7 +14,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ====================== РЕГИСТРАЦИЯ РЕФЕРАЛА (ВАРИАНТ А) ======================
+// ====================== РЕГИСТРАЦИЯ РЕФЕРАЛА ======================
 app.post('/api/register', async (req, res) => {
   const { wallet, refCode } = req.body;
   if (!wallet) return res.status(400).json({ error: 'wallet required' });
@@ -24,7 +23,7 @@ app.post('/api/register', async (req, res) => {
   const myRefCode = normalized.slice(0, 8).toUpperCase();
 
   try {
-    // Создаём пользователя
+    // Создаём/обновляем пользователя
     await supabase.from('referrals').upsert({
       wallet: normalized,
       ref_code: myRefCode
@@ -41,22 +40,13 @@ app.post('/api/register', async (req, res) => {
         .single();
 
       if (referrer && referrer.wallet !== normalized) {
-        console.log(`✅ Привязан реферал: ${normalized} к рефереру ${referrer.wallet}`);
-
+        // Привязываем реферера
         await supabase
           .from('referrals')
           .update({ referrer_wallet: referrer.wallet })
           .eq('wallet', normalized);
 
-        await supabase
-          .from('referrals')
-          .update({
-            direct_referrals: supabase.rpc('array_append', {
-              arr: 'direct_referrals',
-              elem: normalized
-            })
-          })
-          .eq('wallet', referrer.wallet);
+        console.log(`✅ Привязан реферал ${normalized} к ${referrer.wallet}`);
       }
     }
 
@@ -67,29 +57,47 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// ====================== СТАТИСТИКА ======================
+// ====================== СТАТИСТИКА (упрощённая и надёжная) ======================
 app.get('/api/stats/:wallet', async (req, res) => {
   const wallet = req.params.wallet.toLowerCase().trim();
 
+  // Получаем пользователя
   const { data: user } = await supabase
     .from('referrals')
-    .select('*')
+    .select('ref_code')
     .eq('wallet', wallet)
     .single();
 
   if (!user) return res.status(404).json({ error: 'Not found' });
 
-  const { data: level2 } = await supabase
+  // Считаем прямых рефералов (сколько людей имеют referrer_wallet = этот кошелёк)
+  const { count: directCount } = await supabase
+    .from('referrals')
+    .select('*', { count: 'exact', head: true })
+    .eq('referrer_wallet', wallet);
+
+  // Считаем рефералов 2 уровня (рефералы рефералов)
+  const { data: directReferrals } = await supabase
     .from('referrals')
     .select('wallet')
-    .in('referrer_wallet', user.direct_referrals || []);
+    .eq('referrer_wallet', wallet);
+
+  let level2Count = 0;
+  if (directReferrals && directReferrals.length > 0) {
+    const directWallets = directReferrals.map(r => r.wallet);
+    const { count } = await supabase
+      .from('referrals')
+      .select('*', { count: 'exact', head: true })
+      .in('referrer_wallet', directWallets);
+    level2Count = count || 0;
+  }
 
   res.json({
     refCode: user.ref_code,
-    directCount: (user.direct_referrals || []).length,
-    level2Count: (level2 || []).length,
-    purchasedSOL: parseFloat(user.purchased_sol || 0),
-    bonusEarned: parseFloat(user.bonus_earned || 0)
+    directCount: directCount || 0,
+    level2Count: level2Count,
+    purchasedSOL: 0,
+    bonusEarned: 0
   });
 });
 
